@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Product } from "../types/product";
 import { ProductList } from "./product-list-updated";
 import { ProductStorage } from "../lib/storage";
+import { ProductForm } from "./product-form-dynamic";
 
 interface InventoryDashboardProps {
   products: Product[];
@@ -13,6 +14,7 @@ interface InventoryDashboardProps {
 export function InventoryDashboard({ products, onProductUpdate }: InventoryDashboardProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [purchaseType, setPurchaseType] = useState<"new" | "return" | null>(null);
   const [marketplaces, setMarketplaces] = useState<string[]>(["amazon", "flipkart", "jiomart"]);
 
   const calculateStats = () => {
@@ -26,12 +28,15 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
       marketplaceDistribution[product.marketplace] = (marketplaceDistribution[product.marketplace] || 0) + 1;
     });
 
+    const totalPurchased = products.reduce((sum, p) => sum + (p.stock > 0 ? p.stock : 0), 0);
+
     return {
       totalProducts,
       totalValue,
       lowStockItems,
       outOfStockItems,
       marketplaceDistribution,
+      totalPurchased,
     };
   };
 
@@ -52,10 +57,32 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
     }
   };
 
-  const handleSaveProduct = () => {
+  const handleSaveProduct = (updatedProduct: Product) => {
     setShowForm(false);
     setEditingProduct(null);
+
+    if (purchaseType === "new") {
+      ProductStorage.addProduct(updatedProduct);
+    } else if (purchaseType === "return") {
+      const product = products.find(p => p.id === updatedProduct.id);
+      if (product) {
+        let newStock = product.stock - updatedProduct.stock;
+        if (newStock < 0) newStock = 0;
+        product.stock = newStock;
+        ProductStorage.updateProduct(product.id, product);
+      }
+    } else {
+      // Default add or update
+      const product = products.find(p => p.id === updatedProduct.id);
+      if (product) {
+        ProductStorage.updateProduct(product.id, updatedProduct);
+      } else {
+        ProductStorage.addProduct(updatedProduct);
+      }
+    }
+
     onProductUpdate();
+    setPurchaseType(null);
   };
 
   const getMarketplaceColor = (marketplace: string) => {
@@ -81,7 +108,7 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Total Products</h3>
           <p className="text-2xl font-bold text-gray-900">{stats.totalProducts}</p>
@@ -97,6 +124,10 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500">Out of Stock</h3>
           <p className="text-2xl font-bold text-red-600">{stats.outOfStockItems}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500">Total Purchased</h3>
+          <p className="text-2xl font-bold text-green-600">{stats.totalPurchased || 0}</p>
         </div>
       </div>
 
@@ -116,13 +147,27 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
       )}
 
       {/* Action Buttons */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center space-x-4">
         <h2 className="text-2xl font-bold text-gray-900">Products</h2>
         <button
-          onClick={handleAddProduct}
-          className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+          onClick={() => {
+            setPurchaseType("new");
+            setEditingProduct(null);
+            setShowForm(true);
+          }}
+          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
         >
-          Add New Product
+          New Purchase
+        </button>
+        <button
+          onClick={() => {
+            setPurchaseType("return");
+            setEditingProduct(null);
+            setShowForm(true);
+          }}
+          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Return Product
         </button>
       </div>
 
@@ -154,10 +199,12 @@ export function InventoryDashboard({ products, onProductUpdate }: InventoryDashb
               </div>
               <ProductForm
                 product={editingProduct}
+                purchaseType={purchaseType}
                 onSave={handleSaveProduct}
                 onCancel={() => {
                   setShowForm(false);
                   setEditingProduct(null);
+                  setPurchaseType(null);
                 }}
               />
             </div>
